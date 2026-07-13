@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rip Off Dash</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a1a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  canvas { display: block; border-radius: 8px; }
+  .controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,0,0,0.6);
+    padding: 6px 12px;
+    border-radius: 8px;
+  }
+  .controls label {
+    color: #aaa;
+    font-size: 12px;
+  }
+  .controls input[type=range] {
+    width: 100px;
+    accent-color: #00ffaa;
+  }
+  .controls .val {
+    color: #00ffaa;
+    font-size: 12px;
+    min-width: 30px;
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="controls" id="controls">
+  <label>Gravity</label>
+  <input type="range" id="gravSlider" min="1" max="50" value="6" step="1">
+  <span class="val" id="gravVal">0.06</span>
+  <label>Flap</label>
+  <input type="range" id="jumpSlider" min="1" max="50" value="3" step="1">
+  <span class="val" id="jumpVal">0.3</span>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const W = 900;
+const H = 500;
+canvas.width = W;
+canvas.height = H;
+
+const GRAVITY = 0.55;
+const JUMP_FORCE = -10;
+const JUMP_HOLD_FORCE = -0.4;
+const MAX_HOLD_FRAMES = 16;
+const GROUND_Y = H - 80;
+const CEILING_Y = 20;
+const PLAYER_SIZE = 40;
+const PLAYER_X = 120;
+const scoreText = (d) => Math.floor(d / 10) + ' / 500';
+
+const LEVELS = {
+  1: {
+    scrollSpeed: 3,
+    levelLength: 4000,
+    initGravityDir: 1,
+    spawnY: GROUND_Y - PLAYER_SIZE,
+    hasGravityFlip: false,
+    hasCeiling: false,
+    bg: { top: '#0a0a2e', mid: '#1a1a3e', bot: '#0d1b2a' },
+    menuColor: '#00ffaa',
+    menuTextColor: '#001a11',
+    label: 'Level 1 - Jump',
+    isScoreBased: false,
+    highScoreKey: 'gd_highScore_1',
+    formatHighScore: hs => Math.floor(hs * 100) + '%',
+    highScoreValue: (progress, distance) => progress,
+    hudLeftText: (attempts, distance) => 'Attempts: ' + attempts,
+    deathText: (distance, progress) => 'Progress: ' + Math.floor(progress * 100) + '%',
+    winStatsText: (attempts, distance) => 'Attempts: ' + attempts,
+    generateObstacles: function() {
+      let x = 600;
+      while (x < levelLength) {
+        const type = Math.random();
+        if (type < 0.35) {
+          obstacles.push({ x, y: GROUND_Y - 30, w: 30, h: 30, type: 'block', side: 'floor' });
+          x += 170 + Math.random() * 110;
+        } else if (type < 0.6) {
+          obstacles.push({ x, y: GROUND_Y - 35, w: 30, h: 35, type: 'spike', side: 'floor' });
+          x += 140 + Math.random() * 140;
+        } else if (type < 0.8) {
+          obstacles.push({ x, y: GROUND_Y - 60, w: 30, h: 30, type: 'block', side: 'floor' });
+          obstacles.push({ x, y: GROUND_Y - 30, w: 30, h: 30, type: 'block', side: 'floor' });
+          x += 170 + Math.random() * 110;
+        } else {
+          obstacles.push({ x, y: GROUND_Y - 60, w: 30, h: 30, type: 'block', side: 'floor' });
+          obstacles.push({ x, y: GROUND_Y - 30, w: 30, h: 30, type: 'block', side: 'floor' });
+          x += 170 + Math.random() * 110;
+        }
+      }
+    }
+  },
+  2: {
+    scrollSpeed: 4,
+    levelLength: 5000,
+    initGravityDir: -1,
+    spawnY: CEILING_Y + 30,
+    hasGravityFlip: true,
+    hasCeiling: true,
+    bg: { top: '#0a0a2e', mid: '#1a1a3e', bot: '#0d1b2a' },
+    menuColor: '#aa66ff',
+    menuTextColor: '#1a0a2e',
+    label: 'Level 2 - Gravity',
+    isScoreBased: false,
+    highScoreKey: 'gd_highScore_2',
+    formatHighScore: hs => Math.floor(hs * 100) + '%',
+    highScoreValue: (progress, distance) => progress,
+    hudLeftText: (attempts, distance) => 'Attempts: ' + attempts,
+    deathText: (distance, progress) => 'Progress: ' + Math.floor(progress * 100) + '%',
+    winStatsText: (attempts, distance) => 'Attempts: ' + attempts,
+    generateObstacles: function() {
+      let x = 600;
+      while (x < levelLength) {
+        const type = Math.random();
+        if (type < 0.2) {
+          obstacles.push({ x, y: GROUND_Y - 30, w: 30, h: 30, type: 'block', side: 'floor' });
+          x += 130 + Math.random() * 100;
+        } else if (type < 0.4) {
+          obstacles.push({ x, y: CEILING_Y + 30, w: 30, h: 30, type: 'block', side: 'ceiling' });
+          x += 130 + Math.random() * 100;
+        } else if (type < 0.55) {
+          obstacles.push({ x, y: GROUND_Y - 35, w: 30, h: 35, type: 'spike', side: 'floor' });
+          x += 120 + Math.random() * 100;
+        } else if (type < 0.7) {
+          obstacles.push({ x, y: CEILING_Y + 30, w: 30, h: 35, type: 'spike', side: 'ceiling' });
+          x += 120 + Math.random() * 100;
+        } else if (type < 0.85) {
+          const side = Math.random() < 0.5 ? 'floor' : 'ceiling';
+          const y1 = side === 'floor' ? GROUND_Y - 60 : CEILING_Y + 30;
+          const y2 = side === 'floor' ? GROUND_Y - 30 : CEILING_Y + 60;
+          obstacles.push({ x, y: y1, w: 30, h: 30, type: 'block', side });
+          obstacles.push({ x, y: y2, w: 30, h: 30, type: 'block', side });
+          x += 150 + Math.random() * 100;
+        } else {
+          obstacles.push({ x, y: GROUND_Y - 30, w: 30, h: 30, type: 'block', side: 'floor' });
+          obstacles.push({ x: x + 140, y: CEILING_Y + 30, w: 30, h: 30, type: 'block', side: 'ceiling' });
+          obstacles.push({ x: x + 280, y: GROUND_Y - 35, w: 30, h: 35, type: 'spike', side: 'floor' });
+          x += 420;
+        }
+      }
+    }
+  },
+  3: {
+    scrollSpeed: 2.5,
+    levelLength: 5000,
+    initGravityDir: 1,
+    spawnY: H / 2 - PLAYER_SIZE / 2,
+    hasGravityFlip: false,
+    hasCeiling: false,
+    bg: { top: '#1a0a0a', mid: '#2e1a1a', bot: '#1a0d0d' },
+    menuColor: '#33aa33',
+    menuTextColor: '#0a1a0a',
+    label: 'Level 3 - Flappy',
+    isScoreBased: true,
+    highScoreKey: 'gd_highScore_3',
+    formatHighScore: hs => Math.floor(hs / 5000 * 100) + '%',
+    highScoreValue: (progress, distance) => distance,
+    hudLeftText: (attempts, distance) => 'Score: ' + scoreText(distance),
+    deathText: (distance, progress) => 'Score: ' + scoreText(distance),
+    winStatsText: (attempts, distance) => 'Final Score: ' + scoreText(distance),
+    generateObstacles: function() {
+      let x = 600;
+      while (x < levelLength) {
+        const gapY = 100 + Math.random() * 200;
+        const gapSize = 130;
+        const topH = gapY - gapSize / 2;
+        const botY = gapY + gapSize / 2;
+        const botH = H - botY;
+        obstacles.push({ x, y: 0, w: 50, h: topH, type: 'pipe', side: 'top' });
+        obstacles.push({ x, y: botY, w: 50, h: botH, type: 'pipe', side: 'bottom' });
+        x += 250 + Math.random() * 120;
+      }
+    }
+  }
+};
+
+let player, obstacles, particles, bgStars;
+let gameState, attempts, progress, levelLength, distance;
+let frameCount, shakeTimer, currentLevel, highScores;
+let floatyGrav = 0.06;
+let floatyJump = -1.95;
+
+const controls = document.getElementById('controls');
+const gravSlider = document.getElementById('gravSlider');
+const gravVal = document.getElementById('gravVal');
+const jumpSlider = document.getElementById('jumpSlider');
+const jumpVal = document.getElementById('jumpVal');
+
+gravSlider.addEventListener('input', () => {
+  floatyGrav = gravSlider.value / 100;
+  gravVal.textContent = floatyGrav.toFixed(2);
+});
+
+jumpSlider.addEventListener('input', () => {
+  floatyJump = -(jumpSlider.value / 10) * 6.5;
+  jumpVal.textContent = (jumpSlider.value / 10).toFixed(1);
+});
+
+function init() {
+  player = {
+    x: PLAYER_X,
+    y: GROUND_Y - PLAYER_SIZE,
+    vy: 0,
+    rotation: 0,
+    onGround: true,
+    trail: [],
+    isHolding: false,
+    holdFrames: 0,
+    gravityDir: 1,
+    airJumps: 0
+  };
+  obstacles = [];
+  particles = [];
+  bgStars = [];
+  gameState = 'menu';
+  attempts = 0;
+  progress = 0;
+  distance = 0;
+  frameCount = 0;
+  shakeTimer = 0;
+  currentLevel = 1;
+  highScores = {};
+  for (let i = 1; i <= 3; i++) {
+    highScores[i] = parseFloat(localStorage.getItem(LEVELS[i].highScoreKey)) || 0;
+  }
+
+  for (let i = 0; i < 80; i++) {
+    bgStars.push({
+      x: Math.random() * W,
+      y: Math.random() * (H - 100),
+      size: Math.random() * 2 + 0.5,
+      speed: Math.random() * 0.5 + 0.1,
+      brightness: Math.random()
+    });
+  }
+}
+
+function resetLevel() {
+  const cfg = LEVELS[currentLevel];
+  distance = 0;
+  progress = 0;
+  player.vy = 0;
+  player.rotation = 0;
+  player.onGround = true;
+  player.isHolding = false;
+  player.holdFrames = 0;
+  player.trail = [];
+  player.gravityDir = cfg.initGravityDir;
+  player.airJumps = 2;
+  player.y = cfg.spawnY;
+  particles = [];
+  levelLength = cfg.levelLength;
+  obstacles = [];
+  cfg.generateObstacles();
+  gameState = 'playing';
+  controls.style.display = cfg.isScoreBased ? 'flex' : 'none';
+}
+
+function startLevel(level) {
+  currentLevel = level;
+  attempts = 0;
+  resetLevel();
+}
+
+function retryLevel() {
+  attempts++;
+  resetLevel();
+}
+
+function advanceLevel() {
+  if (currentLevel === 3) {
+    gameState = 'menu';
+    hideControls();
+  } else {
+    startLevel(currentLevel + 1);
+  }
+}
+
+function hideControls() { controls.style.display = 'none'; }
+
+function spawnDeathParticles(x, y) {
+  const colors = ['#ff4444', '#ff6666', '#ffaa00', '#ff8800', '#ffffff'];
+  for (let i = 0; i < 30; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 8 + 2;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 3,
+      size: Math.random() * 6 + 2,
+      life: 1,
+      decay: Math.random() * 0.03 + 0.015,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.3
+    });
+  }
+}
+
+function spawnTrailParticle() {
+  const bottom = player.gravityDir === 1 ? player.y + PLAYER_SIZE : player.y;
+  player.trail.push({
+    x: player.x + PLAYER_SIZE / 2,
+    y: bottom,
+    size: PLAYER_SIZE * 0.4,
+    life: 1,
+    decay: 0.06
+  });
+}
+
+function killPlayer() {
+  spawnDeathParticles(player.x + PLAYER_SIZE / 2, player.y + PLAYER_SIZE / 2);
+  shakeTimer = 15;
+  gameState = 'dead';
+}
+
+function collideRect(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+
+function collideSpike(px, py, pw, ph, sx, sy, sw, sh, side) {
+  let left, right, tip;
+  if (side === 'ceiling') {
+    left = { x: sx, y: sy };
+    right = { x: sx + sw, y: sy };
+    tip = { x: sx + sw / 2, y: sy + sh };
+  } else {
+    left = { x: sx, y: sy + sh };
+    right = { x: sx + sw, y: sy + sh };
+    tip = { x: sx + sw / 2, y: sy };
+  }
+
+  const pts = [
+    { x: px, y: py },
+    { x: px + pw, y: py },
+    { x: px, y: py + ph },
+    { x: px + pw, y: py + ph }
+  ];
+
+  for (const p of pts) {
+    if (pointInTriangle(p, left, right, tip)) return true;
+  }
+
+  const triPts = [left, right, tip];
+  for (const tp of triPts) {
+    if (tp.x > px && tp.x < px + pw && tp.y > py && tp.y < py + ph) return true;
+  }
+
+  return false;
+}
+
+function pointInTriangle(p, a, b, c) {
+  const d1 = sign(p, a, b);
+  const d2 = sign(p, b, c);
+  const d3 = sign(p, c, a);
+  const neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+  const pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+  return !(neg && pos);
+}
+
+function sign(p1, p2, p3) {
+  return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+}
+
+function update() {
+  const cfg = LEVELS[currentLevel];
+  frameCount++;
+
+  if (gameState === 'playing') {
+    distance += cfg.scrollSpeed;
+    progress = Math.min(distance / levelLength, 1);
+
+    const hsVal = cfg.highScoreValue(progress, distance);
+    if (hsVal > highScores[currentLevel]) {
+      highScores[currentLevel] = hsVal;
+      localStorage.setItem(cfg.highScoreKey, hsVal);
+    }
+
+    if (!cfg.isScoreBased) {
+      player.vy += GRAVITY * player.gravityDir;
+
+      if (player.isHolding && player.vy * player.gravityDir < 0 && player.holdFrames < MAX_HOLD_FRAMES) {
+        player.vy += JUMP_HOLD_FORCE * player.gravityDir;
+        player.holdFrames++;
+      }
+
+      player.y += player.vy;
+
+      if (player.gravityDir === 1) {
+        if (player.y >= GROUND_Y - PLAYER_SIZE) {
+          player.y = GROUND_Y - PLAYER_SIZE;
+          player.vy = 0;
+          player.onGround = true;
+          player.isHolding = false;
+        } else {
+          player.onGround = false;
+        }
+      } else {
+        if (player.y <= CEILING_Y + 30) {
+          player.y = CEILING_Y + 30;
+          player.vy = 0;
+          player.onGround = true;
+          player.isHolding = false;
+        } else {
+          player.onGround = false;
+        }
+      }
+    } else {
+      player.vy += floatyGrav;
+      player.y += player.vy;
+
+      if (player.y <= 0) {
+        player.y = 0;
+        player.vy = 0;
+      } else if (player.y + PLAYER_SIZE >= H) {
+        killPlayer();
+        return;
+      }
+      player.onGround = false;
+    }
+
+    if (!cfg.isScoreBased) {
+      if (player.onGround) {
+        player.rotation += 0.15;
+      } else {
+        player.rotation += 0.08;
+      }
+      if (frameCount % 2 === 0) spawnTrailParticle();
+    } else {
+      player.rotation = player.vy * 2;
+      if (frameCount % 3 === 0) spawnTrailParticle();
+    }
+
+    const px = player.x;
+    const py = player.y;
+
+    for (const obs of obstacles) {
+      const ox = obs.x - distance;
+      const oy = obs.y;
+
+      let hit = false;
+      if (obs.type === 'spike') {
+        hit = collideSpike(px, py, PLAYER_SIZE, PLAYER_SIZE, ox, oy, obs.w, obs.h, obs.side);
+      } else if (obs.type === 'pipe') {
+        hit = collideRect(px, py, PLAYER_SIZE, PLAYER_SIZE, ox, oy, obs.w, obs.h);
+      } else {
+        hit = collideRect(px, py, PLAYER_SIZE, PLAYER_SIZE, ox, oy, obs.w, obs.h);
+      }
+
+      if (hit) {
+        killPlayer();
+        return;
+      }
+    }
+
+    if (progress >= 1) {
+      gameState = 'win';
+    }
+
+    for (const s of bgStars) {
+      s.x -= s.speed;
+      if (s.x < -5) s.x = W + 5;
+      s.brightness = 0.3 + Math.sin(frameCount * 0.02 + s.x) * 0.3;
+    }
+
+    for (let i = player.trail.length - 1; i >= 0; i--) {
+      player.trail[i].life -= player.trail[i].decay;
+      if (player.trail[i].life <= 0) player.trail.splice(i, 1);
+    }
+  }
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.15;
+    p.life -= p.decay;
+    p.rotation += p.rotSpeed;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  if (shakeTimer > 0) shakeTimer--;
+}
+
+function drawBackground() {
+  const cfg = LEVELS[currentLevel];
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, cfg.bg.top);
+  grad.addColorStop(0.7, cfg.bg.mid);
+  grad.addColorStop(1, cfg.bg.bot);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  for (const s of bgStars) {
+    ctx.globalAlpha = s.brightness;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  if (cfg.hasCeiling) {
+    ctx.fillStyle = '#1a2a1a';
+    ctx.fillRect(0, 0, W, CEILING_Y + 30);
+
+    ctx.strokeStyle = '#2a5a2a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, CEILING_Y + 30);
+    ctx.lineTo(W, CEILING_Y + 30);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#162447';
+  ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+
+  ctx.strokeStyle = '#1f4068';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  ctx.lineTo(W, GROUND_Y);
+  ctx.stroke();
+
+  for (let i = 0; i < W; i += 50) {
+    const offset = (distance * 0.5) % 50;
+    const x = i - offset;
+    ctx.strokeStyle = '#1a1a3e';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, GROUND_Y);
+    ctx.lineTo(x - 20, H);
+    ctx.stroke();
+  }
+
+  if (cfg.hasCeiling) {
+    for (let i = 0; i < W; i += 50) {
+      const offset = (distance * 0.5) % 50;
+      const x = i - offset;
+      ctx.strokeStyle = '#1a3a1a';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, CEILING_Y + 30);
+      ctx.lineTo(x - 20, 0);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawPlayer() {
+  for (const t of player.trail) {
+    ctx.globalAlpha = t.life * 0.3;
+    ctx.fillStyle = '#00ffaa';
+    const s = t.size * t.life;
+    ctx.fillRect(t.x - s / 2, t.y - s / 2, s, s);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.save();
+  ctx.translate(player.x + PLAYER_SIZE / 2, player.y + PLAYER_SIZE / 2);
+
+  const flipScale = player.gravityDir === 1 ? 1 : -1;
+  ctx.scale(1, flipScale);
+  ctx.rotate(player.rotation);
+
+  const glow = ctx.createRadialGradient(0, 0, PLAYER_SIZE * 0.3, 0, 0, PLAYER_SIZE);
+  glow.addColorStop(0, 'rgba(0, 255, 170, 0.3)');
+  glow.addColorStop(1, 'rgba(0, 255, 170, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(-PLAYER_SIZE, -PLAYER_SIZE, PLAYER_SIZE * 2, PLAYER_SIZE * 2);
+
+  ctx.fillStyle = '#00ffaa';
+  ctx.shadowColor = '#00ffaa';
+  ctx.shadowBlur = 15;
+  ctx.fillRect(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE);
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#001a11';
+  ctx.fillRect(-PLAYER_SIZE / 2 + 6, -PLAYER_SIZE / 2 + 6, PLAYER_SIZE - 12, PLAYER_SIZE - 12);
+
+  ctx.fillStyle = '#00ffaa';
+  ctx.fillRect(-PLAYER_SIZE / 2 + 10, -PLAYER_SIZE / 2 + 10, 8, 8);
+  ctx.fillRect(PLAYER_SIZE / 2 - 18, -PLAYER_SIZE / 2 + 10, 8, 8);
+
+  ctx.restore();
+}
+
+function drawObstacles() {
+  for (const obs of obstacles) {
+    const ox = obs.x - distance;
+    if (ox < -50 || ox > W + 50) continue;
+
+    if (obs.type === 'pipe') {
+      ctx.fillStyle = '#33aa33';
+      ctx.shadowColor = '#33aa33';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(ox, obs.y, obs.w, obs.h);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = '#228822';
+      ctx.fillRect(ox + 4, obs.y, 8, obs.h);
+
+      ctx.fillStyle = '#44cc44';
+      ctx.fillRect(ox + obs.w - 8, obs.y, 4, obs.h);
+
+      ctx.fillStyle = '#1a661a';
+      ctx.fillRect(ox - 4, obs.y, 4, obs.h);
+
+      if (obs.side === 'bottom') {
+        ctx.fillStyle = '#44cc44';
+      } else {
+        ctx.fillStyle = '#228822';
+      }
+      ctx.fillRect(ox - 6, obs.y + (obs.side === 'bottom' ? 0 : obs.h - 20), obs.w + 12, 20);
+    } else if (obs.type === 'spike') {
+      ctx.fillStyle = '#ff4444';
+      ctx.shadowColor = '#ff4444';
+      ctx.shadowBlur = 10;
+
+      if (obs.side === 'ceiling') {
+        ctx.beginPath();
+        ctx.moveTo(ox, obs.y);
+        ctx.lineTo(ox + obs.w / 2, obs.y + obs.h);
+        ctx.lineTo(ox + obs.w, obs.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#cc2222';
+        ctx.beginPath();
+        ctx.moveTo(ox + 4, obs.y);
+        ctx.lineTo(ox + obs.w / 2, obs.y + obs.h - 6);
+        ctx.lineTo(ox + obs.w - 4, obs.y);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(ox, obs.y + obs.h);
+        ctx.lineTo(ox + obs.w / 2, obs.y);
+        ctx.lineTo(ox + obs.w, obs.y + obs.h);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#cc2222';
+        ctx.beginPath();
+        ctx.moveTo(ox + 4, obs.y + obs.h);
+        ctx.lineTo(ox + obs.w / 2, obs.y + 6);
+        ctx.lineTo(ox + obs.w - 4, obs.y + obs.h);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else {
+      const isCeiling = obs.side === 'ceiling';
+      ctx.fillStyle = isCeiling ? '#aa66ff' : '#ff6600';
+      ctx.shadowColor = isCeiling ? '#aa66ff' : '#ff6600';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(ox, obs.y, obs.w, obs.h);
+      ctx.shadowBlur = 0;
+
+      const darker = isCeiling ? '#8844cc' : '#cc5200';
+      const lighter = isCeiling ? '#cc88ff' : '#ff8833';
+      ctx.fillStyle = darker;
+      ctx.fillRect(ox + 3, obs.y + 3, obs.w - 6, obs.h - 6);
+      ctx.fillStyle = lighter;
+      ctx.fillRect(ox + 6, obs.y + 6, obs.w - 12, obs.h - 12);
+    }
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+    ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawProgressBar() {
+  const cfg = LEVELS[currentLevel];
+  const barW = 300;
+  const barH = 8;
+  const barX = W / 2 - barW / 2;
+  const barY = 20;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+  ctx.fillRect(barX, barY, barW, barH);
+
+  const fillW = barW * Math.min(progress, 1);
+  const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  gradient.addColorStop(0, '#00ffaa');
+  gradient.addColorStop(1, '#00aaff');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(barX, barY, fillW, barH);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 14px Segoe UI, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(cfg.isScoreBased
+    ? 'Score: ' + scoreText(distance)
+    : Math.floor(progress * 100) + '%', W / 2, barY + barH + 18);
+}
+
+function drawHUD() {
+  const cfg = LEVELS[currentLevel];
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '14px Segoe UI, Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(cfg.hudLeftText(attempts, distance), 20, 30);
+
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = 'bold 14px Segoe UI, Arial, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('Best: ' + cfg.formatHighScore(highScores[currentLevel]), W - 20, 30);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '13px Segoe UI, Arial, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('Level ' + currentLevel, W - 20, 50);
+}
+
+function drawMenu() {
+  drawBackground();
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+
+  ctx.fillStyle = '#00ffaa';
+  ctx.shadowColor = '#00ffaa';
+  ctx.shadowBlur = 30;
+  ctx.font = 'bold 52px Segoe UI, Arial, sans-serif';
+  ctx.fillText('RIP OFF DASH', W / 2, H / 2 - 80);
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '22px Segoe UI, Arial, sans-serif';
+  ctx.fillText('Select Level', W / 2, H / 2 - 30);
+
+  for (let i = 1; i <= 3; i++) {
+    const lvl = LEVELS[i];
+    const y = H / 2 + (i - 1) * 60;
+
+    ctx.fillStyle = lvl.menuColor;
+    ctx.font = 'bold 20px Segoe UI, Arial, sans-serif';
+    ctx.fillRect(W / 2 - 100, y, 200, 45);
+    ctx.fillStyle = lvl.menuTextColor;
+    ctx.font = '18px Segoe UI, Arial, sans-serif';
+    ctx.fillText(lvl.label, W / 2, y + 30);
+
+    ctx.fillStyle = lvl.menuColor;
+    ctx.globalAlpha = 0.7;
+    ctx.strokeStyle = lvl.menuColor;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W / 2 - 100, y, 200, 45);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = '14px Segoe UI, Arial, sans-serif';
+  ctx.fillText('L1: ' + LEVELS[1].formatHighScore(highScores[1]) + '  L2: ' + LEVELS[2].formatHighScore(highScores[2]) + '  L3: ' + LEVELS[3].formatHighScore(highScores[3]), W / 2, H / 2 + 190);
+}
+
+function drawWin() {
+  const cfg = LEVELS[currentLevel];
+  drawBackground();
+  drawObstacles();
+  drawPlayer();
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = 'center';
+  const title = cfg.isScoreBased ? 'GAME COMPLETE!' : 'LEVEL COMPLETE!';
+  const titleColor = cfg.isScoreBased ? '#ffcc00' : '#00ffaa';
+  ctx.fillStyle = titleColor;
+  ctx.shadowColor = titleColor;
+  ctx.shadowBlur = 30;
+  ctx.font = 'bold 48px Segoe UI, Arial, sans-serif';
+  ctx.fillText(title, W / 2, H / 2 - 30);
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '18px Segoe UI, Arial, sans-serif';
+  ctx.fillText(cfg.winStatsText(attempts, distance), W / 2, H / 2 + 20);
+
+  const nextText = currentLevel === 3 ? 'Press Enter for Menu' : 'Press Enter for Level ' + (currentLevel + 1);
+  ctx.fillStyle = '#aaaacc';
+  ctx.font = '16px Segoe UI, Arial, sans-serif';
+  ctx.fillText(nextText, W / 2, H / 2 + 55);
+
+  ctx.fillStyle = '#aaaacc';
+  ctx.font = '14px Segoe UI, Arial, sans-serif';
+  ctx.fillText('Press M for menu', W / 2, H / 2 + 80);
+}
+
+function draw() {
+  ctx.save();
+
+  if (shakeTimer > 0) {
+    const intensity = shakeTimer * 0.8;
+    ctx.translate(
+      (Math.random() - 0.5) * intensity,
+      (Math.random() - 0.5) * intensity
+    );
+  }
+
+  if (gameState === 'menu') {
+    drawMenu();
+    ctx.restore();
+    return;
+  }
+
+  drawBackground();
+  drawObstacles();
+  drawParticles();
+
+  if (gameState !== 'dead') {
+    drawPlayer();
+  }
+
+  drawProgressBar();
+  drawHUD();
+
+  if (gameState === 'dead') {
+    const cfg = LEVELS[currentLevel];
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff4444';
+    ctx.shadowColor = '#ff4444';
+    ctx.shadowBlur = 20;
+    ctx.font = 'bold 40px Segoe UI, Arial, sans-serif';
+    ctx.fillText('You died!', W / 2, H / 2 - 20);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '16px Segoe UI, Arial, sans-serif';
+    ctx.fillText(cfg.deathText(distance, progress), W / 2, H / 2 + 20);
+
+    ctx.fillStyle = '#aaaacc';
+    ctx.font = '15px Segoe UI, Arial, sans-serif';
+    ctx.fillText('Click or press Space to retry', W / 2, H / 2 + 55);
+  }
+
+  if (gameState === 'win') {
+    drawWin();
+  }
+
+  ctx.restore();
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function jump() {
+  if (gameState !== 'playing') return;
+  const cfg = LEVELS[currentLevel];
+  if (cfg.isScoreBased) {
+    player.vy = floatyJump;
+    player.rotation = -0.3;
+  } else if (player.onGround) {
+    player.vy = JUMP_FORCE * player.gravityDir;
+    player.onGround = false;
+    player.isHolding = true;
+    player.holdFrames = 0;
+  }
+}
+
+function flipGravity() {
+  if (LEVELS[currentLevel].hasGravityFlip && gameState === 'playing') {
+    player.gravityDir *= -1;
+  }
+}
+
+function getMenuButtonIndex(mx, my) {
+  for (let i = 0; i < 3; i++) {
+    const y = H / 2 + i * 60;
+    if (mx >= W / 2 - 100 && mx <= W / 2 + 100 && my >= y && my <= y + 45) {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+function getPointXY(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const scaleY = H / rect.height;
+  return { mx: (e.clientX - rect.left) * scaleX, my: (e.clientY - rect.top) * scaleY };
+}
+
+function handlePointerEvent(e) {
+  const point = e.touches ? getPointXY(e.touches[0]) : getPointXY(e);
+  if (gameState === 'menu') {
+    const lvl = getMenuButtonIndex(point.mx, point.my);
+    if (lvl) startLevel(lvl);
+  } else if (gameState === 'dead') {
+    retryLevel();
+  } else if (gameState === 'win') {
+    advanceLevel();
+  } else {
+    jump();
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    e.preventDefault();
+    if (gameState === 'menu') {
+      startLevel(1);
+    } else if (gameState === 'dead') {
+      retryLevel();
+    } else if (gameState === 'playing') {
+      jump();
+    }
+  }
+  if (e.code === 'Enter' && gameState === 'win') {
+    advanceLevel();
+  }
+  if (e.code === 'KeyW' && gameState === 'playing' && LEVELS[currentLevel].hasGravityFlip) {
+    flipGravity();
+  }
+  if (e.code === 'KeyM' && (gameState === 'win' || gameState === 'dead')) {
+    gameState = 'menu';
+    hideControls();
+  }
+  if (gameState === 'menu' && e.code.startsWith('Digit')) {
+    const n = parseInt(e.code[5]);
+    if (n >= 1 && n <= 3) startLevel(n);
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    player.isHolding = false;
+  }
+});
+
+canvas.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  if (e.button === 2 && gameState === 'playing') {
+    flipGravity();
+  } else {
+    handlePointerEvent(e);
+  }
+});
+
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+canvas.addEventListener('mouseup', () => {
+  player.isHolding = false;
+});
+
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  if (e.touches.length >= 2 && gameState === 'playing') {
+    flipGravity();
+  } else {
+    handlePointerEvent(e);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => {
+  player.isHolding = false;
+});
+
+init();
+gameLoop();
+</script>
+</body>
+</html>
